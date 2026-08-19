@@ -18,7 +18,6 @@
     count: 0,
     hifi: false,        // true = tab capture (prompts); false = DOM snapshot
     shots: [],          // {n, name}
-    last: null,         // newest saved capture, for the prefilled-issue route
     mode: 'idle',
     pending: null,      // {blob, url, html, ancestors, selector, rect, clipped}
     onGitHub: /(^|\.)github\.com$/.test(location.hostname)
@@ -59,8 +58,6 @@
   }
 
   const siteOf = url => { try { return siteName(new URL(url).hostname); } catch (_) { return ''; } };
-  const rememberRepo = (site, repo) => { if (site && repo) IDB.set('repo:' + site, repo); };
-  const recallRepo = site => site ? IDB.get('repo:' + site) : Promise.resolve(null);
 
   /* next free number for this site: 1, 2, 3 … reads the folder so it survives reloads */
   async function nextIndex(base) {
@@ -221,15 +218,15 @@
     };
     cb.onchange = () => { S.hifi = cb.checked; tell(); };
     put(
-      el('button', { class: 'big', onclick: startPick, text: 'Click here to capture' }),
-      S.last && !S.onGitHub
-        ? el('div', { class: 'row' },
-          el('button', { class: 's go', onclick: screenFile, text: 'File newest on GitHub →' }))
-        : null,
+      el('button', { class: 'big', onclick: startPick,
+        text: S.count ? 'Capture another element' : 'Click here to capture' }),
       el('label', { class: 'check' }, cb, 'Improved snapshot quality',
         el('em', { text: live() ? 'tab shared' : 'asks permission' })),
       note,
-      el('p', { class: 'help', text: 'Pick an element, then write a description. ↑↓ widens or narrows the selection, Esc cancels.' })
+      el('p', { class: 'help', text: 'Pick an element, then write a description. ↑↓ widens or narrows the selection, Esc cancels.' }),
+      S.count && !S.onGitHub
+        ? el('p', { class: 'help', text: 'To file captures as an issue, open the GitHub new-issue form and click the bookmarklet there.' })
+        : null
     );
     tell();
     drawReel();
@@ -296,51 +293,6 @@
         save)
     );
     desc.focus();
-    drawReel();
-  }
-
-  /* Straight to a prefilled new-issue form, skipping the trip through
-     the panel on github.com. The image cannot ride along in a URL, so it
-     goes to the clipboard for a single paste. */
-  async function screenFile() {
-    S.mode = 'file';
-    body.textContent = '';
-    const site = siteName();
-    const items = [{ cap: S.last.cap, name: S.last.name, png: S.last.png }];
-    const repo = el('input', { type: 'text', placeholder: 'owner/repo' });
-    const note = el('p', { class: 'help', text: 'Opens a new-issue form with the title and body already filled in, and puts the screenshot on your clipboard.' });
-    const err = el('p', { class: 'err' });
-    try { repo.value = (await recallRepo(site)) || ''; } catch (_) { }
-
-    const mark = el('button', { class: 's', text: `Move to ${DONE}/` });
-    mark.hidden = true;
-    mark.onclick = async () => {
-      mark.disabled = true;
-      mark.textContent = await archiveAll(items) ? 'Moved ✓' : 'Could not move';
-    };
-
-    const go = el('button', { class: 's go', text: 'Open prefilled issue' });
-    go.onclick = () => {
-      const r = repo.value.trim();
-      if (!/^[\w.-]+\/[\w.-]+$/.test(r)) { err.textContent = 'Enter it as owner/repo.'; return; }
-      err.textContent = '';
-      rememberRepo(site, r);
-      window.open(issueURL(r, items, PH_CLIP), '_blank', 'noopener');   // before the await, to keep the gesture
-      if (S.last.blob) navigator.clipboard.write([new ClipboardItem({ 'image/png': S.last.blob })]).then(
-        () => { note.className = 'help'; note.textContent = 'Screenshot copied — paste it where the placeholder sits.'; },
-        () => { note.className = 'warn'; note.textContent = `Could not copy the screenshot — drag ${S.last.png || 'the PNG'} in from your folder.`; });
-      if (S.dir) mark.hidden = false;
-    };
-
-    put(
-      el('p', { class: 'help', text: `Filing ${S.last.name}.` }),
-      el('label', { text: 'Repository' }), repo,
-      note, err,
-      el('div', { class: 'row' },
-        el('button', { class: 's', onclick: screenIdle, text: 'Back' }), go),
-      el('div', { class: 'row' }, mark)
-    );
-    repo.focus();
     drawReel();
   }
 
@@ -958,16 +910,6 @@ ${f}
     const base = siteName();
     const id = `${base}-${await nextIndex(base)}`;
     const md = buildMarkdown(id, title, desc, p);
-    S.last = {
-      name: id + '.md', png: p.blob ? id + '.png' : '', blob: p.blob,
-      cap: {
-        fm: {
-          title, url: p.url, selector: p.selector,
-          captured_at: p.at.toISOString(), image: p.blob ? './' + id + '.png' : ''
-        },
-        description: desc, html: p.html
-      }
-    };
 
     if (S.dir) {
       await writeFile(S.dir, id + '.md', new Blob([md], { type: 'text/markdown' }));
@@ -1005,7 +947,7 @@ ${f}
 
   function download(name, blob) {
     const a = el('a', { href: URL.createObjectURL(blob), download: name });
-    document.put(a); a.click(); a.remove();
+    document.body.append(a); a.click(); a.remove();
   }
 
   /* ============================================================
@@ -1189,10 +1131,8 @@ ${f}
     };
   }
 
-  /* ---------- issue text, shared by both filing routes ---------- */
+  /* ---------- issue text ---------- */
   const PH = '<!-- image goes here -->';                                   // attachImage replaces this
-  const PH_CLIP = '<!-- paste the screenshot here — it is on your clipboard -->';
-  const URL_MAX = 7000;                                                    // room to spare under GitHub's limit
 
   function issueTitle(items) {
     return items.length > 1
@@ -1200,19 +1140,16 @@ ${f}
       : headingOf(items[0].cap, items[0].name);
   }
 
-  /* htmlBudget: -1 keeps the captured HTML whole, 0 drops it, n truncates. */
-  function section(cap, name, ph, n, total, htmlBudget) {
-    let html = cap.html || '';
+  function section(cap, name, n, total) {
+    const html = cap.html || '';
     let block = '';
-    if (html && htmlBudget !== 0) {
-      if (htmlBudget > 0 && html.length > htmlBudget)
-        html = html.slice(0, htmlBudget) + `\n… truncated — full HTML in ${name}`;
+    if (html) {
       const f = fence(html);
       block = `\n<details><summary>Captured HTML</summary>\n\n${f}html\n${html}\n${f}\n\n</details>\n`;
     }
     return `${total > 1 ? `## ${n}. ${headingOf(cap, name)}\n\n` : ''}${cap.description}
 
-${ph}
+${PH}
 
 ---
 
@@ -1222,23 +1159,8 @@ ${ph}
 ${block}`;
   }
 
-  function issueBody(items, ph, htmlBudget) {
-    return items.map((it, i) => section(it.cap, it.name, ph, i + 1, items.length, htmlBudget)).join('\n\n');
-  }
-
-  /* Prefilled new-issue URL. The captured HTML is the only part worth
-     spending characters on, so shrink that until the URL fits. */
-  function issueURL(repo, items, ph) {
-    const base = `https://github.com/${repo}/issues/new`;
-    const title = issueTitle(items);
-    const url = text => `${base}?title=${encodeURIComponent(title)}&body=${encodeURIComponent(text)}`;
-    for (const budget of [-1, 4000, 1500, 500, 0]) {
-      const text = issueBody(items, ph, budget);
-      if (url(text).length <= URL_MAX) return url(text);
-    }
-    let text = issueBody(items, ph, 0);
-    while (text.length > 200 && url(text).length > URL_MAX) text = text.slice(0, Math.floor(text.length * 0.8));
-    return url(text);
+  function issueBody(items) {
+    return items.map((it, i) => section(it.cap, it.name, i + 1, items.length)).join('\n\n');
   }
 
   async function archiveAll(items) {
@@ -1251,12 +1173,7 @@ ${block}`;
     const t = GH.title(), b = GH.body();
     if (!t || !b) { body.prepend(el('p', { class: 'err', text: 'Could not find the title/body fields on this page.' })); return; }
     setValue(t, issueTitle(items));
-    setValue(b, issueBody(items, PH, -1) + '\n');
-
-    /* Learn owner/repo for the site the capture came from, so filing the
-       next one from that site is a single click. */
-    rememberRepo(siteOf(items[0].cap.fm.url),
-      (location.pathname.match(/^\/([^/]+\/[^/]+)/) || [, ''])[1]);
+    setValue(b, issueBody(items) + '\n');
 
     for (const it of items) {
       it.png = (it.cap.fm.image || '').replace(/^\.\//, '');
