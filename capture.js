@@ -59,7 +59,7 @@
   const rememberRepo = (site, repo) => { if (site && repo) IDB.set('repo:' + site, repo); };
   const recallRepo = site => site ? IDB.get('repo:' + site) : Promise.resolve(null);
 
-  const claudePrompt = folder => `Read the capture files in ${folder}/ — each .md holds a description, a screenshot and the captured HTML. Make the changes they ask for.`;
+  const claudePrompt = folder => `Read capture files located in ${folder}. Each describes an issue — fix it and delete the capture (.md and .png) when done.`;
 
   /* next free number for this site: 1, 2, 3 … reads the folder so it survives reloads */
   async function nextIndex(base) {
@@ -145,6 +145,10 @@
     .next{display:block;width:100%;text-align:left;margin-top:8px;padding:10px 11px;cursor:pointer;
       border:1px solid #333b43;border-radius:6px;background:#1d232a;color:#cdd4da;font-size:11px}
     .next:hover{background:#252c34;border-color:#3a434c}
+    .next.go{background:#ffb020;border-color:#ffb020}
+    .next.go:hover{background:#ffc247;border-color:#ffc247}
+    .next.go b{color:#14181d}
+    .next.go span{color:rgba(20,24,29,.7)}
     .next b{display:block;color:#e6e9ec;font-weight:600;font-size:11.5px;margin-bottom:3px;
       letter-spacing:.02em;word-break:break-word}
     .next span{display:block;color:#7c8792;font-size:10px;line-height:1.4}
@@ -214,12 +218,8 @@
     S.mode = 'idle';
     body.textContent = '';
     put(
-      el('button', { class: 'big', onclick: startPick,
-        text: S.count ? 'Capture another element' : 'Click here to capture' }),
-      el('p', { class: 'help', text: 'Pick an element, then write a description. ↑↓ widens or narrows the selection, Esc cancels.' }),
-      S.count && !S.onGitHub
-        ? el('p', { class: 'help', text: 'To file captures as an issue, open the GitHub new-issue form and click the bookmarklet there.' })
-        : null
+      el('button', { class: 'big', onclick: startPick, text: 'Click here to capture' }),
+      el('p', { class: 'help', text: 'Pick an element, then write a description. ↑↓ widens or narrows the selection, Esc cancels.' })
     );
     drawReel();
   }
@@ -234,12 +234,12 @@
     const n = S.count;
     const many = n === 1 ? 'capture' : 'captures';
 
-    const another = el('button', { class: 'next', onclick: startPick },
-      el('b', { text: 'Capture another' }),
+    const another = el('button', { class: 'next go', onclick: startPick },
+      el('b', { text: 'Capture another element' }),
       el('span', { text: 'Pick another element on this page.' }));
 
     const claudeOption = () => {
-      const note = el('span', { text: 'Copies a prompt to paste into your Claude session.' });
+      const note = el('span', { text: 'Click to copy a prompt.' });
       return el('button', { class: 'next', onclick: async () => {
         try {
           await navigator.clipboard.writeText(claudePrompt(S.dir.name));
@@ -248,7 +248,7 @@
           note.textContent = `Could not copy — point Claude at the ${S.dir.name} folder yourself.`;
         }
       } },
-        el('b', { text: `Tell Claude to fix the captures in ${S.dir.name}` }), note);
+        el('b', { text: 'Tell Claude to fix it' }), note);
     };
 
     put(
