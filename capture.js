@@ -56,6 +56,11 @@
 
   const siteOf = url => { try { return siteName(new URL(url).hostname); } catch (_) { return ''; } };
 
+  const rememberRepo = (site, repo) => { if (site && repo) IDB.set('repo:' + site, repo); };
+  const recallRepo = site => site ? IDB.get('repo:' + site) : Promise.resolve(null);
+
+  const claudePrompt = folder => `Read the capture files in ${folder}/ — each .md holds a description, a screenshot and the captured HTML. Make the changes they ask for.`;
+
   /* next free number for this site: 1, 2, 3 … reads the folder so it survives reloads */
   async function nextIndex(base) {
     const re = new RegExp('^' + base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '-(\\d+)\\.');
@@ -132,6 +137,17 @@
     textarea{font-family:-apple-system,system-ui,sans-serif;min-height:62px}
     input:focus,textarea:focus{outline:0;border-color:#ffb020}
     .help{font-size:10px;color:#7c8792;margin-top:6px;letter-spacing:.02em}
+    .link{background:none;border:0;padding:4px 1px 0;color:#7c8792;font-size:10px;cursor:pointer;
+      letter-spacing:.02em;text-decoration:underline}
+    .link:hover{color:#cdd4da}
+    .done{font-size:14px;color:#e6e9ec;font-weight:600;letter-spacing:.01em}
+    .done i{color:#ffb020;font-style:normal;margin-right:6px}
+    .next{display:block;width:100%;text-align:left;margin-top:8px;padding:10px 11px;cursor:pointer;
+      border:1px solid #333b43;border-radius:6px;background:#1d232a;color:#cdd4da;font-size:11px}
+    .next:hover{background:#252c34;border-color:#3a434c}
+    .next b{display:block;color:#e6e9ec;font-weight:600;font-size:11.5px;margin-bottom:3px;
+      letter-spacing:.02em;word-break:break-word}
+    .next span{display:block;color:#7c8792;font-size:10px;line-height:1.4}
     .meta{font-size:10px;color:#7c8792;margin-top:7px;word-break:break-all}
     .warn{font-size:10px;color:#ffb020;margin-top:7px}
     .err{font-size:11px;color:#ff8a70;margin-top:8px}
@@ -208,6 +224,86 @@
     drawReel();
   }
 
+  /* Straight after a save: what landed where, and the three things worth
+     doing next. Claude cannot be talked to from here, so that option
+     hands over a prompt to paste; GitHub needs the bookmarklet clicked
+     again on the issue form, so that one just opens the tab. */
+  async function screenSaved() {
+    S.mode = 'saved';
+    body.textContent = '';
+    const n = S.count;
+    const many = n === 1 ? 'capture' : 'captures';
+
+    const another = el('button', { class: 'next', onclick: startPick },
+      el('b', { text: 'Capture another' }),
+      el('span', { text: 'Pick another element on this page.' }));
+
+    const claudeOption = () => {
+      const note = el('span', { text: 'Copies a prompt to paste into your Claude session.' });
+      return el('button', { class: 'next', onclick: async () => {
+        try {
+          await navigator.clipboard.writeText(claudePrompt(S.dir.name));
+          note.textContent = 'Copied — paste it into your Claude session.';
+        } catch (_) {
+          note.textContent = `Could not copy — point Claude at the ${S.dir.name} folder yourself.`;
+        }
+      } },
+        el('b', { text: `Tell Claude to fix the captures in ${S.dir.name}` }), note);
+    };
+
+    put(
+      el('p', { class: 'done' }, el('i', { text: '✓' }), 'Capture saved'),
+      el('p', { class: 'help', text: S.dir
+        ? `${n} ${many} saved to folder ${S.dir.name}`
+        : `${n} ${many} downloaded — no folder mounted, so they went to your Downloads.` }),
+      another,
+      S.dir ? claudeOption() : null,
+      githubOption(await recallRepo(siteName()).catch(() => null))
+    );
+    drawReel();
+  }
+
+  /* The repo to file against is asked for once and remembered per site,
+     so the second time it is a single click. */
+  function githubOption(repo) {
+    const site = siteName();
+    const wrap = el('div');
+    const open = r => window.open(`https://github.com/${r}/issues/new`, '_blank', 'noopener');
+
+    const ask = current => {
+      wrap.textContent = '';
+      const input = el('input', { type: 'text', placeholder: 'owner/repo', value: current || '' });
+      const err = el('p', { class: 'err' });
+      const go = el('button', { class: 's go', text: 'Open issue form' });
+      go.onclick = () => {
+        const r = input.value.trim();
+        if (!/^[\w.-]+\/[\w.-]+$/.test(r)) { err.textContent = 'Enter it as owner/repo.'; return; }
+        rememberRepo(site, r);
+        open(r);                                   // synchronous, so the gesture still counts
+        card(r);
+      };
+      input.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); go.click(); } };
+      wrap.append(
+        el('label', { text: 'Repository' }), input, err,
+        el('div', { class: 'row' },
+          el('button', { class: 's', onclick: () => card(current), text: 'Back' }), go));
+      input.focus();
+    };
+
+    const card = r => {
+      wrap.textContent = '';
+      wrap.append(el('button', { class: 'next', onclick: () => r ? open(r) : ask('') },
+        el('b', { text: r ? `Go to ${r} and click the bookmarklet again` : 'Go to GitHub and click the bookmarklet again' }),
+        el('span', { text: r
+          ? 'Opens its new-issue form — the panel fills it in from these captures, images and all.'
+          : 'Asks which repository, then opens its new-issue form.' })));
+      if (r) wrap.append(el('button', { class: 'link', onclick: () => ask(r), text: 'File against a different repository' }));
+    };
+
+    card(repo || '');
+    return wrap;
+  }
+
   function screenPreview() {
     S.mode = 'preview';
     body.textContent = '';
@@ -238,8 +334,7 @@
       try {
         const msg = await saveCapture(title.value.trim(), desc.value.trim());
         S.count++; S.pending = null;
-        screenIdle();
-        body.prepend(el('p', { class: 'help', text: msg }));
+        await screenSaved();
       } catch (e) {
         err.textContent = e.message || String(e);
         save.disabled = false; save.textContent = 'Save';
@@ -1106,6 +1201,11 @@ ${block}`;
     if (!t || !b) { body.prepend(el('p', { class: 'err', text: 'Could not find the title/body fields on this page.' })); return; }
     setValue(t, issueTitle(items));
     setValue(b, issueBody(items) + '\n');
+
+    /* Learn owner/repo for the site the capture came from, so the panel
+       there can offer it next time. */
+    rememberRepo(siteOf(items[0].cap.fm.url),
+      (location.pathname.match(/^\/([^/]+\/[^/]+)/) || [, ''])[1]);
 
     for (const it of items) {
       it.png = (it.cap.fm.image || '').replace(/^\.\//, '');
