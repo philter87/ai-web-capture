@@ -23,6 +23,6 @@ The list also has a two-click delete for captures you decide not to file. Once a
 
 ## Screenshots
 
-By default the screenshot is rendered from the page itself: the picked element is cloned with its computed styles and rasterised through `<svg><foreignObject>`. That needs **no permission prompt**, and it captures the whole element even where it runs past the bottom of the window.
+The screenshot is rendered from the page itself: the picked element is cloned with its computed styles and rasterised through `<svg><foreignObject>`. That needs **no permission prompt**, and it captures the whole element even where it runs past the bottom of the window.
 
-What it cannot see: content inside `<iframe>`s, cross-origin images served without CORS headers, and pages whose Content-Security-Policy forbids `data:` images. Tick **Improved snapshot quality** for those — it uses tab capture instead, which is exactly what the screen shows, at the cost of Chrome's one-per-page "share this tab" prompt and only covering the visible part of the element.
+What it cannot see: content inside `<iframe>`s, cross-origin images served without CORS headers, and pages whose Content-Security-Policy forbids `data:` images. On those the capture still saves — the `.md` file keeps the HTML and notes that no image was produced.

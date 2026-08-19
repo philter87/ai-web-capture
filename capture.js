@@ -1,7 +1,7 @@
 /* ============================================================
    Page Capture — bookmarklet source
    Self-contained. No external requests, no libraries.
-   Chromium (Chrome/Edge) for folder writing + tab screenshot.
+   Chromium (Chrome/Edge) for folder writing.
    ============================================================ */
 (() => {
   'use strict';
@@ -13,13 +13,10 @@
   /* ---------- session state ---------- */
   const S = {
     dir: null,          // FileSystemDirectoryHandle
-    stream: null,       // MediaStream (tab capture)
-    video: null,
     count: 0,
-    hifi: false,        // true = tab capture (prompts); false = DOM snapshot
     shots: [],          // {n, name}
     mode: 'idle',
-    pending: null,      // {blob, url, html, ancestors, selector, rect, clipped}
+    pending: null,      // {blob, url, html, ancestors, selector, rect}
     onGitHub: /(^|\.)github\.com$/.test(location.hostname)
   };
   window[KEY] = { wake, state: S, snap: shootDOM };
@@ -134,13 +131,7 @@
       color:#e6e9ec;padding:8px;font-size:12px;resize:vertical}
     textarea{font-family:-apple-system,system-ui,sans-serif;min-height:62px}
     input:focus,textarea:focus{outline:0;border-color:#ffb020}
-    .check{display:flex;align-items:center;gap:8px;margin-top:11px;padding:8px 9px;cursor:pointer;
-      border:1px solid #2a3138;border-radius:6px;background:#12161b;color:#cdd4da;font-size:11px;letter-spacing:.04em}
-    .check:hover{border-color:#3a434c}
-    .check input{width:auto;height:13px;flex:0 0 auto;accent-color:#ffb020;margin:0;cursor:pointer}
-    .check em{font-style:normal;color:#7c8792;margin-left:auto;font-size:10px}
     .help{font-size:10px;color:#7c8792;margin-top:6px;letter-spacing:.02em}
-    .help[hidden]{display:none}
     .meta{font-size:10px;color:#7c8792;margin-top:7px;word-break:break-all}
     .warn{font-size:10px;color:#ffb020;margin-top:7px}
     .err{font-size:11px;color:#ff8a70;margin-top:8px}
@@ -206,29 +197,14 @@
   function screenIdle() {
     S.mode = 'idle';
     body.textContent = '';
-    const cb = el('input', { type: 'checkbox' });
-    cb.checked = S.hifi;
-    const note = el('p', { class: 'help' });
-    const live = () => S.stream?.getVideoTracks()[0]?.readyState === 'live';
-    const tell = () => {
-      note.hidden = !cb.checked;                 // the default needs no explaining
-      note.textContent = live()
-        ? 'Pixel-perfect tab capture — this tab is already shared, so no more prompts. Only the visible part of the element is captured.'
-        : 'Pixel-perfect tab capture. Chrome asks to share this tab on the first capture — choose "This tab" and allow. Only the visible part of the element is captured.';
-    };
-    cb.onchange = () => { S.hifi = cb.checked; tell(); };
     put(
       el('button', { class: 'big', onclick: startPick,
         text: S.count ? 'Capture another element' : 'Click here to capture' }),
-      el('label', { class: 'check' }, cb, 'Improved snapshot quality',
-        el('em', { text: live() ? 'tab shared' : 'asks permission' })),
-      note,
       el('p', { class: 'help', text: 'Pick an element, then write a description. ↑↓ widens or narrows the selection, Esc cancels.' }),
       S.count && !S.onGitHub
         ? el('p', { class: 'help', text: 'To file captures as an issue, open the GitHub new-issue form and click the bookmarklet there.' })
         : null
     );
-    tell();
     drawReel();
   }
 
@@ -239,13 +215,8 @@
     if (S.pending.blob) img.src = URL.createObjectURL(S.pending.blob);
     put(
       S.pending.blob ? img
-        : el('p', { class: 'warn', text: S.hifi
-          ? 'No image — tab sharing was declined and the page could not be rendered. The HTML will still be saved.'
-          : 'No image — this page blocks in-page rendering. Tick "Improved snapshot quality" to capture the tab instead. The HTML will still be saved.' }),
+        : el('p', { class: 'warn', text: 'No image — this page blocks in-page rendering. The HTML will still be saved.' }),
       el('p', { class: 'meta', text: `${S.pending.selector}  ·  ${Math.round(S.pending.rect.width)}×${Math.round(S.pending.rect.height)}  ·  ${(S.pending.html.length / 1024).toFixed(1)} kB html` }),
-      S.pending.declined && S.pending.blob
-        ? el('p', { class: 'warn', text: 'Tab sharing was declined — rendered from the page instead.' }) : null,
-      S.pending.clipped ? el('p', { class: 'warn', text: 'Taller than the viewport — image shows the visible part only.' }) : null,
       el('div', { class: 'row' },
         el('button', { class: 's', onclick: () => { S.pending = null; screenIdle(); }, text: 'Cancel' }),
         el('button', { class: 's go', onclick: screenForm, text: 'OK' }))
@@ -350,47 +321,14 @@
 
   /* ============================================================
      4. Screenshots
-        Default — DOM snapshot: clone the picked subtree with its
-        computed styles and rasterise it through <svg><foreignObject>.
-        No permission prompt, and parts scrolled out of view still
-        land in the image. Cannot see into iframes, and cross-origin
-        images without CORS headers come out blank.
-        Optional — tab capture: exactly what the screen shows, at the
-        cost of Chrome's "share this tab" prompt. Viewport only.
+        DOM snapshot: clone the picked subtree with its computed styles
+        and rasterise it through <svg><foreignObject>. No permission
+        prompt, and parts scrolled out of view still land in the image.
+        Cannot see into iframes, and cross-origin images without CORS
+        headers come out blank.
      ============================================================ */
 
-  /* ---------- 4a. tab capture (opt-in, higher fidelity) ---------- */
-  async function ensureStream() {
-    const live = S.stream && S.stream.getVideoTracks()[0]?.readyState === 'live';
-    if (live) return true;
-    if (!navigator.mediaDevices?.getDisplayMedia) return false;
-    S.stream = await navigator.mediaDevices.getDisplayMedia({
-      video: { frameRate: 30 }, audio: false,
-      preferCurrentTab: true, selfBrowserSurface: 'include', surfaceSwitching: 'exclude'
-    });
-    S.video = el('video', { muted: '', playsinline: '' });
-    S.video.srcObject = S.stream;
-    await S.video.play();
-    await new Promise(r => setTimeout(r, 180));
-    return true;
-  }
-
-  async function shootTab(rect) {
-    if (!await ensureStream()) return null;
-    const v = S.video;
-    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
-    const scale = v.videoWidth / window.innerWidth;   // tab capture == viewport
-    const top = Math.max(0, rect.top), left = Math.max(0, rect.left);
-    const w = Math.min(rect.width, window.innerWidth - left);
-    const h = Math.min(rect.height, window.innerHeight - top);
-    const c = el('canvas');
-    c.width = Math.max(1, Math.round(w * scale));
-    c.height = Math.max(1, Math.round(h * scale));
-    c.getContext('2d').drawImage(v, left * scale, top * scale, w * scale, h * scale, 0, 0, c.width, c.height);
-    return new Promise(res => c.toBlob(res, 'image/png'));
-  }
-
-  /* ---------- 4b. DOM snapshot (default, no permission) ---------- */
+  /* ---------- 4a. the clone ---------- */
 
   /* Properties a child inherits: those must be re-stated whenever they
      differ from the parent, even if they match the UA default. */
@@ -775,23 +713,17 @@
     return rasterize(wrap, w, h, css);
   }
 
-  /* ---------- 4c. entry point ---------- */
+  /* ---------- 4b. entry point ---------- */
   async function capture(node) {
     node.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
     await new Promise(r => setTimeout(r, 120));
     const rect = node.getBoundingClientRect();
-    let blob = null, mode = 'dom', declined = false;
-
-    if (S.hifi) {
-      try { blob = await shootTab(rect); } catch (_) { blob = null; }
-      if (blob) mode = 'tab'; else declined = true;
-    }
-    if (!blob) { try { blob = await shootDOM(node, rect); } catch (_) { blob = null; } }
+    let blob = null;
+    try { blob = await shootDOM(node, rect); } catch (_) { blob = null; }
 
     S.pending = {
-      blob, rect, declined,
-      clipped: mode === 'tab' && !!blob && (rect.height > window.innerHeight || rect.top < 0),
-      shot: blob ? mode : 'failed',
+      blob, rect,
+      shot: blob ? 'dom' : 'failed',
       url: location.href,
       html: node.outerHTML,
       selector: selectorOf(node),
