@@ -588,9 +588,11 @@ ${f}
       for (const name of files) {
         const text = await (await (await S.dir.getFileHandle(name)).getFile()).text();
         const cap = parseCapture(text);
+        const num = (name.match(/-(\d+)\.md$/) || [, ''])[1];
+        const label = cap.fm.title && num ? `#${num} · ${cap.fm.title}` : cap.fm.title || name.replace(/\.md$/, '');
         list.append(el('button', {
           class: 'item', onclick: () => fillIssue(cap, name)
-        }, cap.fm.title || name.replace(/\.md$/, ''),
+        }, label,
           el('span', { text: (cap.description || '').slice(0, 90) })));
       }
       body.append(el('p', { class: 'help', text: `${files.length} captures in ${S.dir.name}` }), list,
