@@ -38,6 +38,9 @@
     kids.flat().forEach(k => k && n.append(k));
     return n;
   };
+  /* body.append() would stringify a null into the panel; el() drops it,
+     so screens use this to keep conditional rows optional. */
+  const put = (...kids) => kids.flat().forEach(k => k && body.append(k));
   const pad = (n, w = 2) => String(n).padStart(w, '0');
   const slug = s => (s || '').toLowerCase().normalize('NFKD')
     .replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '-').slice(0, 40) || 'capture';
@@ -140,6 +143,7 @@
     .check input{width:auto;height:13px;flex:0 0 auto;accent-color:#ffb020;margin:0;cursor:pointer}
     .check em{font-style:normal;color:#7c8792;margin-left:auto;font-size:10px}
     .help{font-size:10px;color:#7c8792;margin-top:6px;letter-spacing:.02em}
+    .help[hidden]{display:none}
     .meta{font-size:10px;color:#7c8792;margin-top:7px;word-break:break-all}
     .warn{font-size:10px;color:#ffb020;margin-top:7px}
     .err{font-size:11px;color:#ff8a70;margin-top:8px}
@@ -210,14 +214,13 @@
     const note = el('p', { class: 'help' });
     const live = () => S.stream?.getVideoTracks()[0]?.readyState === 'live';
     const tell = () => {
-      note.textContent = !cb.checked
-        ? 'Rendered from the page itself — no permission prompt, and parts scrolled off-screen are included. Embedded iframes and cross-origin images can come out blank.'
-        : live()
-          ? 'Pixel-perfect tab capture — this tab is already shared, so no more prompts. Only the visible part of the element is captured.'
-          : 'Pixel-perfect tab capture. Chrome asks to share this tab on the first capture — choose "This tab" and allow. Only the visible part of the element is captured.';
+      note.hidden = !cb.checked;                 // the default needs no explaining
+      note.textContent = live()
+        ? 'Pixel-perfect tab capture — this tab is already shared, so no more prompts. Only the visible part of the element is captured.'
+        : 'Pixel-perfect tab capture. Chrome asks to share this tab on the first capture — choose "This tab" and allow. Only the visible part of the element is captured.';
     };
     cb.onchange = () => { S.hifi = cb.checked; tell(); };
-    body.append(
+    put(
       el('button', { class: 'big', onclick: startPick, text: 'Click here to capture' }),
       S.last && !S.onGitHub
         ? el('div', { class: 'row' },
@@ -237,7 +240,7 @@
     body.textContent = '';
     const img = el('img', { class: 'shot', alt: 'Captured region' });
     if (S.pending.blob) img.src = URL.createObjectURL(S.pending.blob);
-    body.append(
+    put(
       S.pending.blob ? img
         : el('p', { class: 'warn', text: S.hifi
           ? 'No image — tab sharing was declined and the page could not be rendered. The HTML will still be saved.'
@@ -275,7 +278,7 @@
       }
     };
 
-    body.append(
+    put(
       el('label', { text: 'Title' }), title,
       el('label', {}, 'Description ', el('i', { text: '*' })), desc,
       el('label', { text: 'Destination' }),
@@ -329,7 +332,7 @@
       if (S.dir) mark.hidden = false;
     };
 
-    body.append(
+    put(
       el('p', { class: 'help', text: `Filing ${S.last.name}.` }),
       el('label', { text: 'Repository' }), repo,
       note, err,
@@ -1002,7 +1005,7 @@ ${f}
 
   function download(name, blob) {
     const a = el('a', { href: URL.createObjectURL(blob), download: name });
-    document.body.append(a); a.click(); a.remove();
+    document.put(a); a.click(); a.remove();
   }
 
   /* ============================================================
@@ -1056,7 +1059,7 @@ ${f}
     body.textContent = '';
     if (!GH.isForm()) {
       const repo = el('input', { type: 'text', placeholder: 'owner/repo', value: (location.pathname.match(/^\/([^/]+\/[^/]+)/) || [, ''])[1] });
-      body.append(
+      put(
         el('p', { class: 'help', text: 'Open the new-issue form for the repo you want to file against.' }),
         el('label', { text: 'Repository' }), repo,
         el('div', { class: 'row' },
@@ -1067,7 +1070,7 @@ ${f}
       );
       drawReel(); return;
     }
-    body.append(
+    put(
       el('button', { class: 'big', onclick: useLatest, text: 'Fill from newest capture' }),
       el('div', { class: 'row' }, el('button', { class: 's', onclick: listCaptures, text: 'Choose from list…' })),
       el('p', { class: 'help', text: `Select folder with claude session. Once the issue is created the capture moves to ${DONE}/, so the list only shows what is still unfiled.` })
@@ -1096,7 +1099,7 @@ ${f}
 
   function failed(e) {
     body.textContent = '';
-    body.append(el('p', { class: 'err', text: e.message || String(e) }),
+    put(el('p', { class: 'err', text: e.message || String(e) }),
       el('div', { class: 'row' }, el('button', { class: 's', onclick: screenGitHub, text: 'Back' })));
     drawReel();
   }
@@ -1162,7 +1165,7 @@ ${f}
       }
 
       sync();
-      body.append(count, list, el('div', { class: 'row' },
+      put(count, list, el('div', { class: 'row' },
         el('button', { class: 's', onclick: screenGitHub, text: 'Back' }), fileBtn));
     } catch (e) {
       failed(e);
@@ -1262,7 +1265,7 @@ ${block}`;
     }
 
     body.textContent = '';
-    body.append(el('p', { class: 'help', text: items.length > 1
+    put(el('p', { class: 'help', text: items.length > 1
       ? `Filled from ${items.length} captures.`
       : `Filled from ${items[0].name}.` }));
 
@@ -1273,7 +1276,7 @@ ${block}`;
     const shots = items.filter(it => it.file);
     let sent = 0;
     const busy = el('p', { class: 'help' });
-    if (shots.length) body.append(busy);
+    if (shots.length) put(busy);
     for (const it of shots) {
       busy.textContent = shots.length > 1
         ? `Attaching image ${sent + stuck.length + 1} of ${shots.length}…`
@@ -1283,7 +1286,7 @@ ${block}`;
       ok ? sent++ : stuck.push(it.file);
     }
     busy.remove();
-    if (sent) body.append(el('p', { class: 'help', text: sent > 1
+    if (sent) put(el('p', { class: 'help', text: sent > 1
       ? `${sent} images uploading — GitHub swaps in each placeholder as it finishes.`
       : 'Image uploading — GitHub replaces the placeholder when it finishes.' }));
     if (stuck.length) {
@@ -1296,7 +1299,7 @@ ${block}`;
           i = (i + 1) % stuck.length;
         } catch (_) { copy.textContent = 'Copy blocked'; }
       };
-      body.append(
+      put(
         el('p', { class: 'warn', text: `GitHub did not take ${stuck.length > 1 ? 'every image' : 'the image'}. Copy and paste into the body.` }),
         el('div', { class: 'row' }, copy));
     }
@@ -1306,7 +1309,7 @@ ${block}`;
       mark.disabled = true;
       mark.textContent = await archiveAll(items) ? 'Moved ✓' : 'Could not move';
     };
-    body.append(el('div', { class: 'row' },
+    put(el('div', { class: 'row' },
       el('button', { class: 's', onclick: listCaptures, text: 'Pick another' }), mark));
     watchSubmit(items);
     drawReel();
