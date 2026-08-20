@@ -16,7 +16,7 @@
     count: 0,
     shots: [],          // {n, name}
     mode: 'idle',
-    pending: null,      // {blob, url, html, ancestors, selector, rect}
+    pending: null,      // {blob, url, html, selector, rect}
     onGitHub: /(^|\.)github\.com$/.test(location.hostname)
   };
   window[KEY] = { wake, state: S, snap: shootDOM };
@@ -818,12 +818,9 @@
 
     S.pending = {
       blob, rect,
-      shot: blob ? 'dom' : 'failed',
       url: location.href,
       html: node.outerHTML,
-      selector: selectorOf(node),
-      ancestors: chainOf(node),
-      at: new Date()
+      selector: selectorOf(node)
     };
     screenPreview();
   }
@@ -843,16 +840,6 @@
       parts.unshift(s); n = p;
     }
     return parts.join(' > ');
-  }
-
-  function chainOf(node) {
-    const out = []; let n = node.parentElement, d = 0;
-    while (n && n !== document.documentElement) { out.unshift(n); n = n.parentElement; }
-    return out.map(a => {
-      const cls = (a.getAttribute('class') || '').split(/\s+/).filter(Boolean).slice(0, 3);
-      return '  '.repeat(d++) + '<' + a.tagName.toLowerCase() +
-        (a.id ? ' id="' + a.id + '"' : '') + (cls.length ? ' class="' + cls.join(' ') + '"' : '') + '>';
-    }).join('\n') + '\n' + '  '.repeat(d) + '⤷ ' + node.tagName.toLowerCase() + ' (captured)';
   }
 
   /* ============================================================
@@ -889,38 +876,21 @@
     return S.dir;
   }
 
+  /* Only what a reader — human or agent — actually needs: the image name
+     comes from the .md name, so it never has to be written down. */
   function buildMarkdown(id, title, desc, p) {
     const f = fence(p.html);
     return `---
-id: ${q(id)}
 title: ${q(title || '')}
 url: ${q(p.url)}
 selector: ${q(p.selector)}
-captured_at: ${q(p.at.toISOString())}
-image: ${q(p.blob ? './' + id + '.png' : '')}
-image_mode: ${q(p.shot)}
 viewport: ${q(window.innerWidth + 'x' + window.innerHeight)}
-region: ${q(Math.round(p.rect.width) + 'x' + Math.round(p.rect.height))}
-page_title: ${q(document.title)}
 ---
-
-# ${title || 'Capture ' + id}
 
 ${p.blob ? `![capture](./${id}.png)\n` : '_No screenshot._\n'}
 ## Description
 
 ${desc}
-
-## Source
-
-- URL: ${p.url}
-- Selector: \`${p.selector}\`
-
-## Ancestors
-
-\`\`\`
-${p.ancestors}
-\`\`\`
 
 ## HTML
 
@@ -1062,6 +1032,9 @@ ${f}
       name.replace(/\.md$/, '');
   }
 
+  /* A capture's image always sits beside it under the same name. */
+  const pngOf = name => name.replace(/\.md$/, '.png');
+
   async function readCapture(name) {
     return parseCapture(await (await (await S.dir.getFileHandle(name)).getFile()).text());
   }
@@ -1124,8 +1097,7 @@ ${f}
           rm.disabled = true;
           try {
             await S.dir.removeEntry(name);
-            const png = (cap.fm.image || '').replace(/^\.\//, '');
-            if (png) { try { await S.dir.removeEntry(png); } catch (_) { } }
+            try { await S.dir.removeEntry(pngOf(name)); } catch (_) { }
             picked.delete(name); row.remove(); left--; sync();
           } catch (_) { rm.disabled = false; rm.textContent = 'failed'; }
         };
@@ -1182,7 +1154,6 @@ ${PH}
 
 **Source:** ${cap.fm.url || '—'}
 **Element:** \`${cap.fm.selector || '—'}\`
-**Captured:** ${cap.fm.captured_at || '—'}
 ${block}`;
   }
 
@@ -1208,9 +1179,9 @@ ${block}`;
       (location.pathname.match(/^\/([^/]+\/[^/]+)/) || [, ''])[1]);
 
     for (const it of items) {
-      it.png = (it.cap.fm.image || '').replace(/^\.\//, '');
+      it.png = pngOf(it.name);
       it.file = null;
-      if (it.png) { try { it.file = await (await S.dir.getFileHandle(it.png)).getFile(); } catch (_) { } }
+      try { it.file = await (await S.dir.getFileHandle(it.png)).getFile(); } catch (_) { }
     }
 
     body.textContent = '';
