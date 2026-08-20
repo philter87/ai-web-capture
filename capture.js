@@ -8,6 +8,7 @@
 
   const KEY = '__pageCapture_v1';
   const DONE = 'submitted';   // subfolder captures move to once they are filed
+  const MAX_HTML = 20000;     // cap captured markup so a huge element doesn't burn tokens for nothing
   if (window[KEY]) { window[KEY].wake(); return; }
 
   /* ---------- session state ---------- */
@@ -42,6 +43,8 @@
     .replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '-').slice(0, 40) || 'capture';
   const q = s => JSON.stringify(String(s ?? ''));           // safe YAML scalar
   const fence = s => { const m = String(s).match(/`{3,}/g); return '`'.repeat(m ? Math.max(...m.map(x => x.length)) + 1 : 3); };
+  const capHTML = html => html.length <= MAX_HTML ? html
+    : html.slice(0, MAX_HTML) + `\n<!-- truncated: ${(html.length / 1024).toFixed(1)} kB total, kept first ${MAX_HTML / 1000}k chars -->`;
 
   /* platform.docwise.dk -> docwise ; example.co.uk -> example ; localhost -> localhost */
   const SLD = new Set(['co', 'com', 'net', 'org', 'gov', 'edu', 'ac', 'or', 'ne', 'sch', 'gob', 'nom', 'firm']);
@@ -822,7 +825,7 @@
     S.pending = {
       blob, rect,
       url: location.href,
-      html: node.outerHTML,
+      html: capHTML(node.outerHTML),
       selector: selectorOf(node)
     };
     screenPreview();
