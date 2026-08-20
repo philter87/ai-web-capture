@@ -62,7 +62,12 @@
   const rememberRepo = (site, repo) => { if (site && repo) IDB.set('repo:' + site, repo); };
   const recallRepo = site => site ? IDB.get('repo:' + site) : Promise.resolve(null);
 
-  const claudePrompt = folder => `Read capture files located in ${folder}. Each describes an issue — fix it and delete the capture (.md and .png) when done.`;
+  const claudePrompt = folder => `Read capture files located in ${folder || 'the current directory'}. Each describes an issue — fix it and delete the capture (.md and .png) when done.`;
+
+  /* Only Chrome and Edge hand a page a real folder. Everywhere else captures
+     download, which works just as well once the browser's download folder
+     points at the Claude session folder. */
+  const canPickDir = () => !!window.showDirectoryPicker;
 
   /* next free number for this site: 1, 2, 3 … reads the folder so it survives reloads */
   async function nextIndex(base) {
@@ -207,11 +212,11 @@
     const n = Math.max(6, S.count);
     for (let i = 0; i < n; i++) reel.append(el('span', { class: 'tick' + (i < S.count ? '' : ' blank') }));
     reel.append(el('span', { class: 'n', text: `${pad(S.count, 3)} saved` }));
-    $('.dot', root).className = 'dot' + (S.dir ? '' : ' off');
+    $('.dot', root).className = 'dot' + (S.dir || !canPickDir() ? '' : ' off');
     mount.textContent = '';
     mount.append(S.dir
       ? el('span', {}, 'folder ', el('b', { text: S.dir.name }))
-      : el('span', { text: 'no folder mounted' }));
+      : el('span', { text: canPickDir() ? 'no folder mounted' : 'saving to downloads' }));
   }
 
   /* ============================================================
@@ -245,12 +250,13 @@
 
     const claudeOption = () => {
       const note = el('span', { text: 'Click to copy a prompt.' });
+      const where = S.dir ? S.dir.name : null;
       return el('button', { class: 'next', onclick: async () => {
         try {
-          await navigator.clipboard.writeText(claudePrompt(S.dir.name));
+          await navigator.clipboard.writeText(claudePrompt(where));
           note.textContent = 'Copied — paste it into your Claude session.';
         } catch (_) {
-          note.textContent = `Could not copy — point Claude at the ${S.dir.name} folder yourself.`;
+          note.textContent = `Could not copy — point Claude at ${where ? 'the ' + where + ' folder' : 'your download folder'} yourself.`;
         }
       } },
         el('b', { text: 'Tell Claude to fix it' }), note);
@@ -260,10 +266,10 @@
       el('p', { class: 'done' }, el('i', { text: '✓' }), 'Capture saved'),
       el('p', { class: 'help', text: S.dir
         ? `${n} ${many} saved to folder ${S.dir.name}`
-        : `${n} ${many} downloaded — no folder mounted, so they went to your Downloads.` }),
+        : `${n} ${many} downloaded to your browser's download folder.` }),
       another,
       el('p', { class: 'divider', text: 'Done capturing? Wrap up with one of these:' }),
-      S.dir ? claudeOption() : null,
+      claudeOption(),
       githubOption(await recallRepo(siteName()).catch(() => null))
     );
     drawReel();
@@ -351,14 +357,18 @@
       el('label', { text: 'Title' }), title,
       el('label', {}, 'Description ', el('i', { text: '*' })), desc,
       el('label', { text: 'Destination' }),
-      el('button', {
-        class: 's', text: S.dir ? `Folder: ${S.dir.name}` : 'Choose folder…',
-        onclick: async (e) => {
-          try { await pickDir('readwrite', true); e.target.textContent = `Folder: ${S.dir.name}`; drawReel(); }
-          catch (_) { }
-        }
-      }),
-      el('p', { class: 'help', text: S.dir ? 'Click to pick a different folder.' : 'Select folder with claude session' }),
+      canPickDir() ? [
+        el('button', {
+          class: 's', text: S.dir ? `Folder: ${S.dir.name}` : 'Choose folder…',
+          onclick: async (e) => {
+            try { await pickDir('readwrite', true); e.target.textContent = `Folder: ${S.dir.name}`; drawReel(); }
+            catch (_) { }
+          }
+        }),
+        el('p', { class: 'help', text: S.dir ? 'Click to pick a different folder.' : 'Select folder with claude session' })
+      ] : [
+        el('p', { class: 'help', text: 'Downloads — this browser cannot hand a folder to a page. Point the browser\'s download folder at your Claude session folder (Firefox: Settings → General → Downloads → Save files to).' })
+      ],
       err,
       el('div', { class: 'row' },
         el('button', { class: 's', onclick: () => { S.pending = null; screenIdle(); }, text: 'Cancel' }),
@@ -874,7 +884,7 @@
   }
 
   async function pickDir(mode = 'readwrite', force = false) {
-    if (!window.showDirectoryPicker) throw new Error('This browser cannot write to folders — captures will download instead. Use Chrome or Edge for folder mode.');
+    if (!canPickDir()) throw new Error('This browser cannot read folders — capturing still works (files download), but filing saved captures to GitHub needs Chrome or Edge.');
     if (!force) {
       const saved = await IDB.get('dir');
       if (saved && await grant(saved, mode)) { S.dir = saved; return S.dir; }
@@ -910,7 +920,7 @@ ${f}
 
   async function saveCapture(title, desc) {
     const p = S.pending;
-    if (!S.dir && window.showDirectoryPicker) { try { await pickDir(); } catch (_) { } }
+    if (!S.dir && canPickDir()) { try { await pickDir(); } catch (_) { } }
 
     const base = siteName();
     const id = `${base}-${await nextIndex(base)}`;
