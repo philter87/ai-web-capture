@@ -8,7 +8,7 @@
 
   const KEY = '__pageCapture_v1';
   const DONE = 'submitted';   // subfolder captures move to once they are filed
-  const MAX_HTML = 20000;     // cap captured markup so a huge element doesn't burn tokens for nothing
+  const MAX_HTML = 5000;      // cap captured markup so a huge element doesn't burn tokens for nothing
   if (window[KEY]) { window[KEY].wake(); return; }
 
   /* ---------- session state ---------- */
