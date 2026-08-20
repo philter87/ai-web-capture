@@ -259,11 +259,11 @@
       el('button', {
         class: 's', text: S.dir ? `Folder: ${S.dir.name}` : 'Choose folder…',
         onclick: async (e) => {
-          try { await pickDir(); e.target.textContent = `Folder: ${S.dir.name}`; drawReel(); }
+          try { await pickDir('readwrite', true); e.target.textContent = `Folder: ${S.dir.name}`; drawReel(); }
           catch (_) { }
         }
       }),
-      el('p', { class: 'help', text: 'Select folder with claude session' }),
+      el('p', { class: 'help', text: S.dir ? 'Click to pick a different folder.' : 'Select folder with claude session' }),
       err,
       el('div', { class: 'row' },
         el('button', { class: 's', onclick: () => { S.pending = null; screenIdle(); }, text: 'Cancel' }),
@@ -427,10 +427,12 @@
     return await handle.requestPermission(o) === 'granted';
   }
 
-  async function pickDir(mode = 'readwrite') {
+  async function pickDir(mode = 'readwrite', force = false) {
     if (!window.showDirectoryPicker) throw new Error('This browser cannot write to folders — captures will download instead. Use Chrome or Edge for folder mode.');
-    const saved = await IDB.get('dir');
-    if (saved && await grant(saved, mode)) { S.dir = saved; return S.dir; }
+    if (!force) {
+      const saved = await IDB.get('dir');
+      if (saved && await grant(saved, mode)) { S.dir = saved; return S.dir; }
+    }
     S.dir = await window.showDirectoryPicker({ id: 'claude-capture', mode, startIn: 'documents' });
     await IDB.set('dir', S.dir);
     return S.dir;
@@ -569,17 +571,17 @@ ${f}
       drawReel(); return;
     }
     body.append(
-      el('button', { class: 'big', onclick: listCaptures, text: 'Select capture folder' }),
-      el('p', { class: 'help', text: 'Select folder with claude session — then pick a capture to fill this issue.' })
+      el('button', { class: 'big', onclick: () => listCaptures(true), text: S.dir ? `Folder: ${S.dir.name}` : 'Select capture folder' }),
+      el('p', { class: 'help', text: S.dir ? 'Click to pick a different folder.' : 'Select folder with claude session — then pick a capture to fill this issue.' })
     );
     drawReel();
   }
 
-  async function listCaptures() {
+  async function listCaptures(force = false) {
     body.textContent = '';
     const err = el('p', { class: 'err' });
     try {
-      await pickDir('readwrite');
+      await pickDir('readwrite', force);
       const files = [];
       for await (const [name, h] of S.dir.entries()) if (name.endsWith('.md') && h.kind === 'file') files.push(name);
       files.sort((a, b) => b.localeCompare(a, undefined, { numeric: true }));
