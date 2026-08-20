@@ -137,6 +137,8 @@
     textarea{font-family:-apple-system,system-ui,sans-serif;min-height:62px}
     input:focus,textarea:focus{outline:0;border-color:#ffb020}
     .help{font-size:10px;color:#7c8792;margin-top:6px;letter-spacing:.02em}
+    .divider{margin-top:16px;padding-top:12px;border-top:1px solid #262c33;font-size:10px;
+      color:#7c8792;letter-spacing:.02em}
     .link{background:none;border:0;padding:4px 1px 0;color:#7c8792;font-size:10px;cursor:pointer;
       letter-spacing:.02em;text-decoration:underline}
     .link:hover{color:#cdd4da}
@@ -257,6 +259,7 @@
         ? `${n} ${many} saved to folder ${S.dir.name}`
         : `${n} ${many} downloaded — no folder mounted, so they went to your Downloads.` }),
       another,
+      el('p', { class: 'divider', text: 'Done capturing? Wrap up with one of these:' }),
       S.dir ? claudeOption() : null,
       githubOption(await recallRepo(siteName()).catch(() => null))
     );
