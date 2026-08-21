@@ -238,6 +238,86 @@ async function segTerminal(browser) {
   await finish(ctx, page, born, mark, 'seg-terminal');
 }
 
+/* ============================================================
+   Segment: the two fixes, live on deepdraw.ai
+   ============================================================ */
+async function segResult(browser) {
+  console.log('seg-result');
+  const { ctx, page, frame, born } = await openStage(browser, {
+    ...DEEPDRAW, src: 'https://deepdraw.ai', bookmark: true,
+  });
+  await frame.waitForSelector('h1');
+  await beat(page, 500);
+  const mark = Date.now();
+
+  /* Nothing here is capture.js — this is the site with the agent's edits
+     applied over it, so the gif ends on the same page it started from. */
+  await frame.evaluate(() => {
+    const s = document.createElement('style');
+    s.textContent = `
+      .bz-chip{position:fixed;z-index:2147483647;background:#14181d;color:#ffb020;
+        font:600 12.5px/1 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.05em;
+        padding:8px 12px;border-radius:6px;box-shadow:0 8px 24px rgba(0,0,0,.3);
+        opacity:0;transform:translateY(7px);transition:opacity .3s ease,transform .3s ease}
+      .bz-chip.on{opacity:1;transform:none}
+      .bz-lit{outline:2px solid #ffb020;outline-offset:7px;border-radius:8px;
+        transition:outline-color .4s ease}
+      .bz-lit.bz-dim{outline-color:transparent}
+      .dd-landing-actions .btn,.dd-landing-actions .btn-outline{
+        transition:padding .55s ease,font-size .55s ease}`;
+    document.head.append(s);
+
+    window.bzLight = (sel, text, where) => {
+      const el = document.querySelector(sel);
+      el.classList.add('bz-lit');
+      const r = el.getBoundingClientRect();
+      const c = document.createElement('div');
+      c.className = 'bz-chip';
+      c.textContent = text;
+      document.body.append(c);
+      const cr = c.getBoundingClientRect();
+      c.style.left = Math.round(r.left + r.width / 2 - cr.width / 2) + 'px';
+      c.style.top = Math.round(where === 'above' ? r.top - cr.height - 22 : r.bottom + 22) + 'px';
+      requestAnimationFrame(() => c.classList.add('on'));
+      return true;
+    };
+    window.bzClear = () => {
+      document.querySelectorAll('.bz-lit').forEach(e => e.classList.add('bz-dim'));
+      document.querySelectorAll('.bz-chip').forEach(e => e.classList.remove('on'));
+    };
+  });
+
+  // fix one: the headline gains its "!"
+  await frame.evaluate(() => window.bzLight('h1', '✓  Add ! to title', 'above'));
+  await beat(page, 900);
+  await frame.evaluate(() => {
+    const h1 = document.querySelector('h1');
+    h1.firstChild.textContent = h1.textContent.trim();   // trailing newline would show as a gap
+    const bang = document.createElement('span');
+    bang.textContent = '!';
+    bang.style.cssText = 'display:inline-block;opacity:0;transform:scale(.3);' +
+      'transition:transform .4s cubic-bezier(.2,1.7,.4,1),opacity .25s ease';
+    h1.append(bang);
+    requestAnimationFrame(() => { bang.style.opacity = '1'; bang.style.transform = 'none'; });
+  });
+  await beat(page, 1500);
+  await frame.evaluate(() => window.bzClear());
+  await beat(page, 700);
+
+  // fix two: the call-to-action row grows
+  await frame.evaluate(() => window.bzLight('.dd-landing-actions', '✓  Make buttons bigger', 'below'));
+  await beat(page, 900);
+  await frame.evaluate(() => {
+    document.querySelectorAll('.dd-landing-actions .btn,.dd-landing-actions .btn-outline')
+      .forEach(b => { b.style.padding = '14px 30px'; b.style.fontSize = '18px'; });
+  });
+  await beat(page, 1700);
+  await frame.evaluate(() => window.bzClear());
+  await beat(page, 1400);
+
+  await finish(ctx, page, born, mark, 'seg-result');
+}
+
 /* ============================================================ */
 const main = async () => {
   const server = await serve(8787);
@@ -248,6 +328,7 @@ const main = async () => {
   if (has('drag')) await segDrag(browser);
   if (has('session')) await segSession(browser);
   if (has('terminal')) await segTerminal(browser);
+  if (has('result')) await segResult(browser);
 
   await browser.close();
   server.close();

@@ -13,6 +13,8 @@ const CARDS = [
     title: 'Capture another', sub: 'as many elements as you like, one note each' },
   { name: 'card-4-claude', kicker: 'the payoff',
     title: 'Feed it to Claude Code', sub: 'one click copies the prompt' },
+  { name: 'card-5-result', kicker: 'and it is done',
+    title: 'Both fixes, live', sub: 'back on the page you captured' },
 ];
 
 const html = c => `<!doctype html><meta charset="utf-8">

@@ -6,7 +6,7 @@ const dur = f => parseFloat(execFileSync('ffprobe',
   ['-v','error','-show_entries','format=duration','-of','csv=p=0', f]).toString().trim());
 
 const C = fileURLToPath(new URL('./clips', import.meta.url));
-const GIF = fileURLToPath(new URL('../../demo.gif', import.meta.url));
+const GIF = fileURLToPath(new URL('../../walkthrough.gif', import.meta.url));
 const MP4 = fileURLToPath(new URL('./master.mp4', import.meta.url));
 const marks = JSON.parse(fs.readFileSync(`${C}/seg-session.marks.json`, 'utf8'));
 const SESSION_END = dur(`${C}/seg-session.webm`);   // marks can run a frame past the file
@@ -21,6 +21,8 @@ export const PIECES = [
   { img: 'card-4-claude.png',  dur: 1.9 },
   { vid: 'seg-session.webm',   from: marks.cap2End,  to: SESSION_END,   speed: 1.35 },
   { vid: 'seg-terminal.webm',  from: parseFloat(fs.readFileSync(`${C}/seg-terminal.lead`,'utf8')), to: dur(`${C}/seg-terminal.webm`), speed: 1.3 },
+  { img: 'card-5-result.png',  dur: 1.7 },
+  { vid: 'seg-result.webm',    from: parseFloat(fs.readFileSync(`${C}/seg-result.lead`,'utf8')), to: dur(`${C}/seg-result.webm`), speed: 1.15 },
 ];
 
 const FPS = 25, W = 760, H = 640;
@@ -56,4 +58,4 @@ execFileSync('ffmpeg', ['-y', '-v', 'error', '-i', MP4,
   `[a]palettegen=max_colors=${GIF_COLORS}:stats_mode=diff[p];` +
   `[b][p]paletteuse=dither=bayer:bayer_scale=3:diff_mode=rectangle`,
   '-loop', '0', GIF], { stdio: 'inherit' });
-console.log('demo.gif written ->', GIF, `(${(fs.statSync(GIF).size / 1e6).toFixed(1)} MB)`);
+console.log('walkthrough.gif written ->', GIF, `(${(fs.statSync(GIF).size / 1e6).toFixed(1)} MB)`);

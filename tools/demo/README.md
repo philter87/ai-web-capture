@@ -1,14 +1,14 @@
 # Walkthrough recorder
 
-Records `demo.gif` — the walkthrough embedded in the repo README and in the
-install page. Re-run it whenever the panel's UI changes so the gif does not
+Records `walkthrough.gif` — the walkthrough embedded in the repo README and in
+the install page. (`demo.gif` is the previous cut, kept only as a fallback.) Re-run it whenever the panel's UI changes so the gif does not
 drift away from `capture.js`.
 
 ```sh
 cd tools/demo
 npm install
 npx playwright install chromium   # first time only
-npm run all                       # cards -> record -> build, writes ../../demo.gif
+npm run all                       # cards -> record -> build, writes ../../walkthrough.gif
 ```
 
 `ffmpeg` must be on `$PATH`. The whole run takes about four minutes, most of it
@@ -46,8 +46,8 @@ Two shims make that possible headlessly:
 | `lib.mjs` | Stage markup, the Chrome mock, the fake File System Access API |
 | `drive.mjs` | Synthetic cursor, click ripple, typing helpers |
 | `serve.mjs` | Serves the repo (so the install page is the real one) and the stage |
-| `record.mjs` | The three recorded segments; writes `clips/*.webm` |
-| `cards.mjs` | The four full-screen title cards; writes `clips/*.png` |
+| `record.mjs` | The four recorded segments; writes `clips/*.webm` |
+| `cards.mjs` | The five full-screen title cards; writes `clips/*.png` |
 | `terminal.mjs`| The Claude Code terminal mock and its scripted output |
 | `build.mjs` | Trims, speeds up and concatenates everything, then writes the gif |
 
@@ -57,6 +57,7 @@ Two shims make that possible headlessly:
 node record.mjs drag          # just the bookmarks-bar drag
 node record.mjs session       # the two captures on deepdraw.ai
 node record.mjs terminal      # just the Claude Code mock
+node record.mjs result        # just the fixes landing on deepdraw.ai
 ```
 
 ## Gotchas
@@ -71,6 +72,11 @@ node record.mjs terminal      # just the Claude Code mock
   via `down()`/`up()` for that reason.
 - **The install page embeds this gif**, so `record.mjs` hides `#video-guide`
   during the drag segment. Without it the clip contains a small copy of itself.
+- **The closing segment fakes the fixes.** `seg-result` loads deepdraw.ai plain
+  and applies the two edits the terminal mock just showed — the `!` on the
+  headline, bigger call-to-action buttons — with the descriptions echoed back as
+  chips. Keep it in step with `STEPS` in `terminal.mjs`; if one changes and the
+  other does not, the gif contradicts itself.
 - **Timing.** Each segment records from context creation, so the first seconds
   are page load. Scripts write the lead-in to `clips/<name>.lead` and `build.mjs`
   trims it; the length of the finished gif is otherwise set by the per-piece

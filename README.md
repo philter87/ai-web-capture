@@ -8,7 +8,7 @@ Free forever. Works in Chrome, Edge, and Brave on desktop. It relies on the File
 
 ## How it works
 
-![AI Web Capture — install, capture, hand it to Claude Code](demo.gif)
+![AI Web Capture — install, capture, hand it to Claude Code, see the fixes land](walkthrough.gif)
 
 1. Drag the **AI Web Capture** button to your bookmarks bar.
 2. Click it on any page — a small panel appears bottom right.
