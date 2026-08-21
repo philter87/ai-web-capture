@@ -1,7 +1,7 @@
 # Walkthrough recorder
 
 Records `walkthrough.gif` — the walkthrough embedded in the repo README and in
-the install page. (`demo.gif` is the previous cut, kept only as a fallback.) Re-run it whenever the panel's UI changes so the gif does not
+the install page. Re-run it whenever the panel's UI changes so the gif does not
 drift away from `capture.js`.
 
 ```sh
