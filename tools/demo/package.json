@@ -1,0 +1,15 @@
+{
+  "name": "ai-web-capture-demo",
+  "private": true,
+  "type": "module",
+  "description": "Records the walkthrough gif embedded in the README and the install page.",
+  "scripts": {
+    "cards": "node cards.mjs",
+    "record": "node record.mjs",
+    "build": "node build.mjs",
+    "all": "node cards.mjs && node record.mjs && node build.mjs"
+  },
+  "dependencies": {
+    "playwright": "^1.49.0"
+  }
+}

@@ -4,11 +4,11 @@ A bookmarklet for grabbing feedback straight off a web page — pick an element,
 
 **Install:** https://philter87.github.io/ai-web-capture/
 
-Free forever. Works in Chrome, Edge, and Brave on desktop. It relies on the File System Access API to write captures to a folder, so it does **not** work on mobile devices or in Safari — the install page shows a video walkthrough for those cases.
+Free forever. Works in Chrome, Edge, and Brave on desktop. It relies on the File System Access API to write captures to a folder, so it does **not** work on mobile devices or in Safari — the install page shows a walkthrough for those cases.
 
 ## How it works
 
-https://github.com/philter87/ai-web-capture/raw/main/AiWebCapture.mp4
+![AI Web Capture — install, capture, hand it to Claude Code](demo.gif)
 
 1. Drag the **AI Web Capture** button to your bookmarks bar.
 2. Click it on any page — a small panel appears bottom right.
