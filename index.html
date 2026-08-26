@@ -23,6 +23,11 @@
   summary::marker{color:var(--amber)}
   textarea{width:100%;height:120px;background:#0f1216;color:#8b96a1;border:1px solid var(--line);
            border-radius:8px;padding:10px;font:11px/1.4 ui-monospace,monospace}
+  textarea.short{height:54px}
+  .copy-btn{margin-top:8px;padding:7px 14px;background:var(--panel);border:1px solid var(--line);
+            color:var(--text);border-radius:6px;font:11px ui-monospace,monospace;letter-spacing:.04em;
+            text-transform:uppercase;cursor:pointer}
+  .copy-btn:hover{border-color:var(--amber);color:var(--amber)}
   .warn-banner{border:1px solid #ff8a70;background:#2a1712;border-radius:10px;padding:16px 18px;margin:0 0 22px}
   .warn-banner .eyebrow{color:#ff8a70}
   .warn-banner p{margin:8px 0 0}
@@ -80,6 +85,16 @@
       <summary class="eyebrow">What if dragging is blocked?</summary>
       <p style="margin:10px 0">Create a bookmark manually and paste this as the URL:</p>
     <textarea readonly id="fallback-code" onclick="this.select()"></textarea>
+    <button class="copy-btn" onclick="copyText(this, document.getElementById('fallback-code').value)">Copy</button>
+    </details>
+  </div>
+
+  <div class="card">
+    <details>
+      <summary class="eyebrow">Can you trust this?</summary>
+      <p style="margin:10px 0">Don't take our word for it — ask your own AI agent to check. Paste the bookmarklet's source (or point it at the <a href="https://github.com/philter87/ai-web-capture" style="color:var(--amber)">GitHub repo</a>) and have it judge for you:</p>
+      <textarea readonly class="short" id="trust-prompt" onclick="this.select()">Can I trust the bookmarklet at https://philter87.github.io/ai-web-capture/. Is it trying to hack me?</textarea>
+      <button class="copy-btn" onclick="copyText(this, document.getElementById('trust-prompt').value)">Copy</button>
     </details>
   </div>
 
@@ -103,6 +118,15 @@
   <p class="eyebrow" style="margin-top:6px">Made by <a href="https://github.com/philter87" style="color:var(--amber)">@philter87</a></p>
 </main>
 <script>
+  function copyText(btn, text) {
+    var revert = btn.textContent;
+    var done = function(ok){ btn.textContent = ok ? 'Copied!' : 'Copy failed'; setTimeout(function(){ btn.textContent = revert; }, 1500); };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function(){ done(true); }, function(){ done(false); });
+    } else {
+      done(false);
+    }
+  }
   (function(){
     var ua = navigator.userAgent;
     var isMobile = /Android|iPhone|iPad|iPod|Mobi/i.test(ua);
