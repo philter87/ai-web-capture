@@ -555,6 +555,20 @@
     return any ? out : null;
   }
 
+  /* Every property that can carry an asset by URL. A mask that fails to load
+     is worse than no mask — the box paints in full — so these have to travel
+     as data alongside the plain background images. */
+  const URL_PROPS = ('background-image mask-image -webkit-mask-image border-image-source ' +
+    'list-style-image mask-border-source -webkit-mask-box-image-source').split(' ');
+
+  function inlineAssets(cs, out, ctx) {
+    for (const prop of URL_PROPS) {
+      const v = cs.getPropertyValue(prop);
+      if (!v || v === 'none' || !v.includes('url(')) continue;
+      ctx.tasks.push(inlineURLs(v).then(d => d && out.style.setProperty(prop, d)));
+    }
+  }
+
   function applyProps(dest, cs, parentCS, tag, ctx) {
     const base = baseStyle(tag);
     const st = dest.style;
@@ -608,6 +622,7 @@
       if (!c || c === 'none' || c === 'normal' || ps.display === 'none') continue;
       const span = document.createElement('span');
       applyProps(span, ps, cs, 'span', ctx);
+      inlineAssets(ps, span, ctx);
       span.style.setProperty('content', 'normal');
       const u = c.match(/url\((["']?)([^"')]+)\1\)/);
       if (u) {
@@ -624,18 +639,78 @@
   }
 
   /* Inline SVG: keep the markup verbatim, carry over only what paints. */
-  function cloneSVG(src) {
+  function cloneSVG(src, ctx) {
     const out = src.cloneNode(true);
+    copySVGStyles(src, out, true);
+    resolveUses(out, ctx);
+    return out;
+  }
+
+  function copySVGStyles(src, out, withDisplay) {
     const from = [src, ...src.querySelectorAll('*')];
     const to = [out, ...out.querySelectorAll('*')];
     for (let i = 0; i < from.length && i < to.length; i++) {
       const cs = getComputedStyle(from[i]);
       for (const p of SVG_PROPS) {
+        /* A <symbol> computes to display:none; written inline it would hide
+           the <use> instance too, so referenced markup keeps the UA value. */
+        if (!withDisplay && (p === 'display' || p === 'visibility')) continue;
         const v = cs.getPropertyValue(p);
         if (v) to[i].style.setProperty(p, v);
       }
     }
-    return out;
+  }
+
+  /* <use> points at a <symbol>/<g> that usually lives outside the picked
+     element — a sprite at the top of the page, or a separate .svg file.
+     Neither travels with the clone, so copy the target in beside it. */
+  function resolveUses(out, ctx) {
+    for (const u of out.querySelectorAll('use')) {
+      const href = u.getAttribute('href') || u.getAttribute('xlink:href') || '';
+      const hash = href.indexOf('#');
+      if (hash < 0) continue;
+      const id = href.slice(hash + 1);
+      if (!id || hasId(out, id)) continue;
+      if (hash === 0) {
+        const ref = document.getElementById(id);
+        if (!ref) continue;
+        const copy = ref.cloneNode(true);
+        copySVGStyles(ref, copy, false);
+        out.appendChild(copy);
+      } else if (ctx) {
+        let abs;
+        try { abs = new URL(href.slice(0, hash), location.href).href; } catch (_) { continue; }
+        ctx.tasks.push(spriteNode(abs, id).then(node => {
+          if (!hasId(out, id)) {
+            if (!node) return;
+            out.appendChild(node);
+          }
+          /* The file path cannot resolve from a standalone SVG — point the
+             reference at the copy that now sits inside it. */
+          u.setAttribute('href', '#' + id);
+          u.removeAttributeNS('http://www.w3.org/1999/xlink', 'href');
+        }));
+      }
+    }
+  }
+
+  function hasId(root, id) {
+    try { return root.id === id || !!root.querySelector('#' + CSS.escape(id)); }
+    catch (_) { return false; }
+  }
+
+  /* Pull one symbol out of an external sprite file, memoised per file. */
+  const spriteCache = new Map();
+  async function spriteNode(url, id) {
+    if (!spriteCache.has(url)) spriteCache.set(url, fetch(url, { cache: 'force-cache' })
+      .then(r => r.ok ? r.text() : '').catch(() => ''));
+    const text = await spriteCache.get(url);
+    if (!text) return null;
+    try {
+      const doc = new DOMParser().parseFromString(text, 'image/svg+xml');
+      const node = doc.getElementById(id);
+      return node ? document.importNode(node, true) : null;
+    } catch (_) { return null; }
   }
 
   function frameOf(video) {
@@ -668,7 +743,7 @@
     const tag = src.tagName.toLowerCase();
 
     if (src instanceof SVGSVGElement) {
-      const out = cloneSVG(src);
+      const out = cloneSVG(src, ctx);
       for (const p of ['width', 'height', 'display', 'vertical-align', 'overflow', 'opacity',
         'margin-top', 'margin-right', 'margin-bottom', 'margin-left'])
         out.style.setProperty(p, cs.getPropertyValue(p));
@@ -721,9 +796,7 @@
       out.setAttribute('selected', '');
     }
 
-    const bg = cs.backgroundImage;
-    if (bg && bg !== 'none' && bg.includes('url('))
-      ctx.tasks.push(inlineURLs(bg).then(v => v && out.style.setProperty('background-image', v)));
+    inlineAssets(cs, out, ctx);
 
     if (!leaf) {
       for (const kid of (src.shadowRoot || src).childNodes) {
@@ -743,11 +816,17 @@
     const jobs = [];
     for (const sheet of document.styleSheets) {
       let rules;
-      try { rules = sheet.cssRules; } catch (_) { continue; }   // cross-origin sheet
+      /* A cross-origin sheet hides its rules — refetch the file and read the
+         @font-face blocks out of the text. Icon fonts (Google Fonts, Font
+         Awesome on a CDN) are nearly always served that way. */
+      try { rules = sheet.cssRules; } catch (_) {
+        if (sheet.href) jobs.push(facesFromText(sheet.href, fams));
+        continue;
+      }
       for (const r of rules) {
         if (r.type !== 5) continue;
         const fam = (r.style.getPropertyValue('font-family') || '').replace(/["']/g, '').trim().toLowerCase();
-        if (fams.has(fam)) jobs.push(face(r, sheet.href));
+        if (fams.has(fam)) jobs.push(inlineFace(r.cssText, r.style.getPropertyValue('src') || '', sheet.href));
       }
     }
     if (!jobs.length) return '';
@@ -755,15 +834,30 @@
     return out.length > 8e6 ? '' : out;
   }
 
-  async function face(rule, href) {
-    const src = rule.style.getPropertyValue('src') || '';
+  const sheetCache = new Map();
+  async function facesFromText(href, fams) {
+    if (!sheetCache.has(href)) sheetCache.set(href, fetch(href, { cache: 'force-cache' })
+      .then(r => r.ok ? r.text() : '').catch(() => ''));
+    const css = await sheetCache.get(href);
+    if (!css) return '';
+    const jobs = [];
+    for (const m of css.matchAll(/@font-face\s*\{([^}]*)\}/gi)) {
+      const fm = m[1].match(/font-family\s*:\s*([^;]+)/i);
+      if (!fm || !fams.has(fm[1].replace(/["']/g, '').trim().toLowerCase())) continue;
+      const sm = m[1].match(/src\s*:\s*([^;]+)/i);
+      if (sm) jobs.push(inlineFace('@font-face{' + m[1] + '}', sm[1], href));
+    }
+    return (await Promise.all(jobs)).filter(Boolean).join('\n');
+  }
+
+  async function inlineFace(cssText, src, href) {
     const urls = [...src.matchAll(/url\((["']?)([^"')]+)\1\)/g)].map(m => m[2]);
     if (!urls.length) return null;
     const pick = urls.find(u => /\.woff2($|[?#])/i.test(u)) || urls.find(u => /\.woff($|[?#])/i.test(u)) || urls[0];
     let abs;
     try { abs = new URL(pick, href || location.href).href; } catch (_) { return null; }
     const d = await dataURL(abs);
-    return d ? rule.cssText.replace(/src\s*:[^;}]*/i, 'src:url(' + d + ')') : null;
+    return d ? cssText.replace(/src\s*:[^;}]*/i, 'src:url(' + d + ')') : null;
   }
 
   function bgOf(node) {
@@ -833,6 +927,10 @@
     st.setProperty('width', w + 'px');
     st.setProperty('height', h + 'px');
     st.setProperty('box-sizing', 'border-box');
+    /* The picked element often owned a stacking context (a sticky header
+       with a z-index, say) that `position:static` above just destroyed —
+       without one, a negative-z child slips behind the backing colour. */
+    st.setProperty('isolation', 'isolate');
     if (cs.display === 'inline') st.setProperty('display', 'inline-block');
 
     const wrap = document.createElement('div');
