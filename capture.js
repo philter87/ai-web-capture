@@ -529,7 +529,10 @@
       const r = await fetch(url, { cache: 'force-cache' });
       if (!r.ok) return null;
       const b = await r.blob();
-      if (b.size > 4e6) return null;
+      /* Base64 adds a third on top, and the whole SVG has to fit in one
+         URL — but a hero image or a walkthrough gif runs well past a few
+         megabytes, and dropping it leaves a broken-image glyph in the shot. */
+      if (b.size > 24e6) return null;
       return new Promise(res => {
         const fr = new FileReader();
         fr.onload = () => res(fr.result);
