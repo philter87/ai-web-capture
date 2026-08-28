@@ -467,6 +467,20 @@
     -webkit-user-select`.split(/\s+/));
   const SKIP_RE = /^(-webkit-)?(animation|transition)|^(scroll|overscroll|view-transition)-/;
 
+  /* Widths that compute to 0px whenever their own style is `none` — so they
+     match the UA default and get dropped, while the style beside them (a CSS
+     reset writing `border-style:solid` everywhere is enough) does get written
+     and revives the width at its `medium` initial value in the clone. Pin the
+     width whenever its style lands, so an invisible border stays invisible. */
+  const GATED = new Map([
+    ['border-top-style', 'border-top-width'],
+    ['border-right-style', 'border-right-width'],
+    ['border-bottom-style', 'border-bottom-width'],
+    ['border-left-style', 'border-left-width'],
+    ['outline-style', 'outline-width'],
+    ['column-rule-style', 'column-rule-width']
+  ]);
+
   /* Displays where an explicit width/height would be ignored or harmful.
      Note inline-block / inline-flex are pinnable — only bare `inline` is not. */
   const NO_PIN = /^(inline|contents|none|ruby)$|^table-(row|column|caption|header|footer)/;
@@ -551,6 +565,8 @@
       if (base && base.get(prop) === v &&
         !(parentCS && INHERITED.has(prop) && parentCS.getPropertyValue(prop) !== v)) continue;
       try { st.setProperty(prop, v); } catch (_) { }
+      const gated = GATED.get(prop);
+      if (gated) try { st.setProperty(gated, cs.getPropertyValue(gated)); } catch (_) { }
     }
     st.setProperty('animation', 'none');
     st.setProperty('transition', 'none');
