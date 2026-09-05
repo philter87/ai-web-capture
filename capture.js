@@ -59,8 +59,38 @@
 
   const siteOf = url => { try { return siteName(new URL(url).hostname); } catch (_) { return ''; } };
 
-  const rememberRepo = (site, repo) => { if (site && repo) IDB.set('repo:' + site, repo); };
-  const recallRepo = site => site ? IDB.get('repo:' + site) : Promise.resolve(null);
+  /* localhost belongs to every checkout on the machine, so the host on its own
+     cannot say which project a folder — or a repo — was remembered for, and
+     naming it says nothing either. Local pages go by the app's own name;
+     public sites keep using the host, which already names one project. */
+  const LOCAL = /^(localhost|127(\.\d+){3}|0\.0\.0\.0|\[?::1\]?|10(\.\d+){3}|192\.168(\.\d+){2}|172\.(1[6-9]|2\d|3[01])(\.\d+){2})$|\.localhost$/;
+  const isLocal = host => LOCAL.test(host);
+
+  const named = s => (s && String(s).trim() ? slug(s) : '');   // slug() invents 'capture'; here nothing means nothing
+
+  /* "Inbox · Acme" -> acme. Apps put their own name last and change the part
+     in front as the user clicks around, so the tail is what stays put. */
+  const appName = title => {
+    const parts = String(title || '').split(/\s+[|\u2013\u2014\u00b7\u2022\u00bb>:-]\s+/).filter(s => s.trim());
+    return named(parts[parts.length - 1] || '');
+  };
+
+  /* A name the app states outright beats one guessed from its title — only
+     ever readable for the page we are standing on. */
+  const declaredApp = () => named(($('meta[name="application-name"]', document) ||
+    $('meta[property="og:site_name"]', document) || {}).content);
+
+  function projectName(url = location.href, title = document.title, here = true) {
+    let host;
+    try { host = new URL(url).hostname; } catch (_) { return ''; }
+    const site = siteName(host);
+    if (!isLocal(host)) return site;
+    const app = (here && declaredApp()) || appName(title);
+    return app || site;                        // nothing to go on: back to the bare host
+  }
+
+  const rememberRepo = (project, repo) => { if (project && repo) IDB.set('repo:' + project, repo); };
+  const recallRepo = project => project ? IDB.get('repo:' + project) : Promise.resolve(null);
 
   const claudePrompt = folder => `Read capture files located in ${folder || 'the current directory'}. Each describes an issue — fix it and delete the capture (.md and .png) when done.`;
 
@@ -278,15 +308,15 @@
       another,
       el('p', { class: 'divider', text: 'Done capturing? Wrap up with one of these:' }),
       claudeOption(),
-      githubOption(await recallRepo(siteName()).catch(() => null))
+      githubOption(await recallRepo(projectName()).catch(() => null))
     );
     drawReel();
   }
 
-  /* The repo to file against is asked for once and remembered per site,
+  /* The repo to file against is asked for once and remembered per project,
      so the second time it is a single click. */
   function githubOption(repo) {
-    const site = siteName();
+    const project = projectName();
     const wrap = el('div');
     const open = r => window.open(`https://github.com/${r}/issues/new`, '_blank', 'noopener');
 
@@ -298,7 +328,7 @@
       go.onclick = () => {
         const r = input.value.trim();
         if (!/^[\w.-]+\/[\w.-]+$/.test(r)) { err.textContent = 'Enter it as owner/repo.'; return; }
-        rememberRepo(site, r);
+        rememberRepo(project, r);
         open(r);                                   // synchronous, so the gesture still counts
         card(r);
       };
@@ -373,7 +403,11 @@
             catch (_) { }
           }
         }),
-        el('p', { class: 'help', text: S.dir ? 'Click to pick a different folder.' : 'Select folder with claude session' })
+        el('p', { class: 'help', text: S.dir
+          ? (isLocal(location.hostname)
+            ? `Remembered for ${projectName()} — click to pick a different folder.`
+            : 'Click to pick a different folder.')
+          : 'Select folder with claude session' })
       ] : [
         el('p', { class: 'help', text: 'Downloads — this browser cannot hand a folder to a page. Point the browser\'s download folder at your Claude session folder (Firefox: Settings → General → Downloads → Save files to).' })
       ],
@@ -1008,14 +1042,23 @@
     return await handle.requestPermission(o) === 'granted';
   }
 
+  /* One remembered folder per project, not per origin. The picker id follows
+     the same key so Chrome reopens it where that project last left off. */
+  const dirKey = () => 'dir:' + (projectName() || 'default');
+  const pickerId = key => ('cap-' + key.replace(/[^\w-]/g, '')).slice(0, 32);
+
   async function pickDir(mode = 'readwrite', force = false) {
     if (!canPickDir()) throw new Error('This browser cannot read folders — capturing still works (files download), but filing saved captures to GitHub needs Chrome or Edge.');
+    const key = dirKey();
     if (!force) {
-      const saved = await IDB.get('dir');
-      if (saved && await grant(saved, mode)) { S.dir = saved; return S.dir; }
+      /* Earlier versions kept a single handle per origin. For a public site
+         that is still the right folder, so it carries over; on localhost it is
+         just as likely to belong to another checkout, so local pages ask. */
+      const saved = (await IDB.get(key)) || (!isLocal(location.hostname) && await IDB.get('dir'));
+      if (saved && await grant(saved, mode)) { S.dir = saved; await IDB.set(key, saved); return S.dir; }
     }
-    S.dir = await window.showDirectoryPicker({ id: 'claude-capture', mode, startIn: 'documents' });
-    await IDB.set('dir', S.dir);
+    S.dir = await window.showDirectoryPicker({ id: pickerId(key), mode, startIn: 'documents' });
+    await IDB.set(key, S.dir);
     return S.dir;
   }
 
@@ -1025,6 +1068,7 @@
     const f = fence(p.html);
     return `---
 title: ${q(title || '')}
+project: ${q(projectName())}
 url: ${q(p.url)}
 selector: ${q(p.selector)}
 viewport: ${q(window.innerWidth + 'x' + window.innerHeight)}
@@ -1047,7 +1091,7 @@ ${f}
     const p = S.pending;
     if (!S.dir && canPickDir()) { try { await pickDir(); } catch (_) { } }
 
-    const base = siteName();
+    const base = projectName();
     const id = `${base}-${await nextIndex(base)}`;
     const md = buildMarkdown(id, title, desc, p);
 
@@ -1316,9 +1360,10 @@ ${block}`;
     setValue(t, issueTitle(items));
     setValue(b, issueBody(items) + '\n');
 
-    /* Learn owner/repo for the site the capture came from, so the panel
+    /* Learn owner/repo for the project the capture came from, so the panel
        there can offer it next time. */
-    rememberRepo(siteOf(items[0].cap.fm.url),
+    rememberRepo(items[0].cap.fm.project ||
+      projectName(items[0].cap.fm.url, items[0].cap.fm.title, false),
       (location.pathname.match(/^\/([^/]+\/[^/]+)/) || [, ''])[1]);
 
     for (const it of items) {
