@@ -61,8 +61,10 @@
 
   /* localhost belongs to every checkout on the machine, so the host on its own
      cannot say which project a folder — or a repo — was remembered for, and
-     naming it says nothing either. Local pages go by the app's own name;
-     public sites keep using the host, which already names one project. */
+     naming it says nothing either. What travels with a project is the name the
+     app gives itself: the same key on localhost:3000 as on the live domain, so
+     captures of both land under one name. The host is only for pages that
+     never say what they are. */
   const LOCAL = /^(localhost|127(\.\d+){3}|0\.0\.0\.0|\[?::1\]?|10(\.\d+){3}|192\.168(\.\d+){2}|172\.(1[6-9]|2\d|3[01])(\.\d+){2})$|\.localhost$/;
   const isLocal = host => LOCAL.test(host);
 
@@ -83,10 +85,8 @@
   function projectName(url = location.href, title = document.title, here = true) {
     let host;
     try { host = new URL(url).hostname; } catch (_) { return ''; }
-    const site = siteName(host);
-    if (!isLocal(host)) return site;
     const app = (here && declaredApp()) || appName(title);
-    return app || site;                        // nothing to go on: back to the bare host
+    return app || siteName(host);              // nothing to go on: back to the bare host
   }
 
   const rememberRepo = (project, repo) => { if (project && repo) IDB.set('repo:' + project, repo); };
@@ -404,9 +404,7 @@
           }
         }),
         el('p', { class: 'help', text: S.dir
-          ? (isLocal(location.hostname)
-            ? `Remembered for ${projectName()} — click to pick a different folder.`
-            : 'Click to pick a different folder.')
+          ? `Remembered for ${projectName()} — click to pick a different folder.`
           : 'Select folder with claude session' })
       ] : [
         el('p', { class: 'help', text: 'Downloads — this browser cannot hand a folder to a page. Point the browser\'s download folder at your Claude session folder (Firefox: Settings → General → Downloads → Save files to).' })
@@ -1042,24 +1040,56 @@
     return await handle.requestPermission(o) === 'granted';
   }
 
-  /* One remembered folder per project, not per origin. The picker id follows
-     the same key so Chrome reopens it where that project last left off. */
-  const dirKey = () => 'dir:' + (projectName() || 'default');
+  /* Where a folder is remembered, best key first. On GitHub that is the repo
+     being filed against — its issue form should reopen the checkout its
+     captures came from — and everywhere else the project. The host is a second
+     chance for public sites, whose titles drift from page to page; localhost
+     has no such fallback, since that host is shared with every other checkout.
+     'dir' is what versions before per-project folders wrote. */
+  const repoPath = () => (location.pathname.match(/^\/([^/]+\/[^/]+)/) || [, ''])[1].toLowerCase();
+
+  function dirKeys() {
+    const repo = S.onGitHub && repoPath();
+    const host = 'dir:' + siteName();
+    if (repo) return ['dir:repo:' + repo, host, 'dir'];
+    const project = 'dir:' + (projectName() || 'default');
+    return isLocal(location.hostname) ? [project] : [project, host, 'dir'];
+  }
+
   const pickerId = key => ('cap-' + key.replace(/[^\w-]/g, '')).slice(0, 32);
+
+  /* Reuse whatever a key points at without making the user re-grant it — only
+     the best candidate is worth a permission prompt. */
+  async function recallDir(keys, mode) {
+    const seen = [];
+    for (const k of keys) {
+      const h = await IDB.get(k);
+      if (!h) continue;
+      let dup = false;
+      for (const other of seen) { try { dup = dup || await other.isSameEntry(h); } catch (_) { } }
+      if (!dup) seen.push(h);
+    }
+    for (const h of seen) { try { if (await h.queryPermission({ mode }) === 'granted') return h; } catch (_) { } }
+    return seen[0] && await grant(seen[0], mode) ? seen[0] : null;
+  }
 
   async function pickDir(mode = 'readwrite', force = false) {
     if (!canPickDir()) throw new Error('This browser cannot read folders — capturing still works (files download), but filing saved captures to GitHub needs Chrome or Edge.');
-    const key = dirKey();
+    const keys = dirKeys();
     if (!force) {
-      /* Earlier versions kept a single handle per origin. For a public site
-         that is still the right folder, so it carries over; on localhost it is
-         just as likely to belong to another checkout, so local pages ask. */
-      const saved = (await IDB.get(key)) || (!isLocal(location.hostname) && await IDB.get('dir'));
-      if (saved && await grant(saved, mode)) { S.dir = saved; await IDB.set(key, saved); return S.dir; }
+      const saved = await recallDir(keys, mode);
+      if (saved) { S.dir = saved; await rememberDir(keys, saved); return S.dir; }
     }
-    S.dir = await window.showDirectoryPicker({ id: pickerId(key), mode, startIn: 'documents' });
-    await IDB.set(key, S.dir);
+    S.dir = await window.showDirectoryPicker({ id: pickerId(keys[0]), mode, startIn: 'documents' });
+    await rememberDir(keys, S.dir);
     return S.dir;
+  }
+
+  /* Under its own key, and under the host's as the fallback for a project or
+     repo nothing has been chosen for yet. */
+  async function rememberDir(keys, handle) {
+    await IDB.set(keys[0], handle);
+    if (keys[1]) await IDB.set(keys[1], handle);
   }
 
   /* Only what a reader — human or agent — actually needs: the image name
@@ -1196,10 +1226,16 @@ ${f}
       );
       drawReel(); return;
     }
+    const repo = repoPath();
     put(
       el('button', { class: 'big', onclick: useLatest, text: 'Fill from newest capture' }),
-      el('div', { class: 'row' }, el('button', { class: 's', onclick: listCaptures, text: 'Choose from list…' })),
-      el('p', { class: 'help', text: `Select folder with claude session. Once the issue is created the capture moves to ${DONE}/, so the list only shows what is still unfiled.` })
+      el('div', { class: 'row' },
+        el('button', { class: 's', onclick: listCaptures, text: 'Choose from list…' }),
+        canPickDir() ? el('button', {
+          class: 's', text: S.dir ? `Folder: ${S.dir.name}` : 'Choose folder…',
+          onclick: async () => { try { await pickDir('readwrite', true); screenGitHub(); } catch (_) { } }
+        }) : null),
+      el('p', { class: 'help', text: `Select folder with claude session${repo ? ` — remembered for ${repo}` : ''}. Once the issue is created the capture moves to ${DONE}/, so the list only shows what is still unfiled.` })
     );
     drawReel();
   }
@@ -1322,7 +1358,7 @@ ${f}
 
   function issueTitle(items) {
     return items.length > 1
-      ? `${items.length} captures from ${siteOf(items[0].cap.fm.url) || 'the app'}`
+      ? `${items.length} captures from ${items[0].cap.fm.project || siteOf(items[0].cap.fm.url) || 'the app'}`
       : headingOf(items[0].cap, items[0].name);
   }
 
